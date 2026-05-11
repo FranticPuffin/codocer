@@ -1,0 +1,45 @@
+[语言: JAVA] - 总计: 2096 条
+项目名称                      | 条数        
+----------------------------------------
+Closure                   | 442       
+JacksonDatabind           | 336       
+Math                      | 256       
+Jsoup                     | 186       
+Lang                      | 154       
+Mockito                   | 148       
+JacksonCore               | 102       
+Cli                       | 94        
+Compress                  | 92        
+Collections               | 78        
+Time                      | 66        
+Gson                      | 46        
+Codec                     | 38        
+JxPath                    | 30        
+Csv                       | 28        
+
+[语言: PYTHON] - 总计: 5436 条
+项目名称                      | 条数        
+----------------------------------------
+pandas                    | 602       
+matplotlib                | 600       
+core                      | 326       
+pytorch                   | 302       
+cpython                   | 290       
+django                    | 266       
+ray                       | 260       
+AzurLaneAutoScript        | 246       
+rasa                      | 214       
+espnet                    | 214       
+ccxt                      | 212       
+freqtrade                 | 212       
+chainer                   | 210       
+faceswap                  | 204       
+scikit-image              | 202       
+models                    | 198       
+scikit-learn              | 180       
+ipython                   | 148       
+transformers              | 128       
+aws-sam-cli               | 108       
+speechbrain               | 108       
+readthedocs.org           | 104       
+zulip                     | 102     

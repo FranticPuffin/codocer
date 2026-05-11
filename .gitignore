@@ -1,0 +1,6 @@
+defects4j/
+hf_cache/
+ollama-linux/
+llm_manager.py
+API.py
+download.py
