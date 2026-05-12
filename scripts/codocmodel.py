@@ -377,7 +377,7 @@ class AuditPipeline:
 # }
 
 # train_list, val_list = JSONLDataManager.load_and_split("../dataset/merged_data.jsonl", train_ratio=0.85)
-train_list, val_list = JSONLDataManager.load_and_split("../dataset/scored/scored3_output_avg.jsonl", train_ratio=0.85)
+train_list, val_list = JSONLDataManager.load_and_split("../dataset/Cjs/scored3_output_avg.jsonl", train_ratio=0.85)
 # 将模型加载到显存中
 # 注意：模型初始化应在函数外部，防止显存重复占用
 # 1. 初始化
