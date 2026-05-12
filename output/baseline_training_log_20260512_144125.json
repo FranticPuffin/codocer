@@ -1,0 +1,218 @@
+[
+  {
+    "epoch": 1,
+    "train_loss": 0.597275,
+    "val_loss": 0.466019,
+    "learning_rate": 1e-05,
+    "accuracy": 0.755492,
+    "overall_precision": 0.7421,
+    "overall_recall": 0.7799,
+    "overall_f1": 0.7606,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.8024,
+        "recall": 0.7737,
+        "f1": 0.7878,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.4346,
+        "recall": 0.8071,
+        "f1": 0.565,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.7493,
+        "recall": 0.8675,
+        "f1": 0.8041,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.7878,
+        "recall": 0.7191,
+        "f1": 0.7519,
+        "count": 815
+      }
+    }
+  },
+  {
+    "epoch": 2,
+    "train_loss": 0.401646,
+    "val_loss": 0.359776,
+    "learning_rate": 1e-05,
+    "accuracy": 0.811454,
+    "overall_precision": 0.8457,
+    "overall_recall": 0.76,
+    "overall_f1": 0.8006,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.858,
+        "recall": 0.8472,
+        "f1": 0.8526,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.3043,
+        "recall": 0.05,
+        "f1": 0.0859,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.7837,
+        "recall": 0.8801,
+        "f1": 0.8291,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.9164,
+        "recall": 0.6901,
+        "f1": 0.7873,
+        "count": 815
+      }
+    }
+  },
+  {
+    "epoch": 3,
+    "train_loss": 0.307163,
+    "val_loss": 0.403342,
+    "learning_rate": 1e-05,
+    "accuracy": 0.818253,
+    "overall_precision": 0.7988,
+    "overall_recall": 0.8487,
+    "overall_f1": 0.823,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.8737,
+        "recall": 0.8694,
+        "f1": 0.8715,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.4555,
+        "recall": 0.9143,
+        "f1": 0.6081,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.8063,
+        "recall": 0.8927,
+        "f1": 0.8473,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.8453,
+        "recall": 0.7409,
+        "f1": 0.7897,
+        "count": 815
+      }
+    }
+  },
+  {
+    "epoch": 4,
+    "train_loss": 0.255155,
+    "val_loss": 0.379171,
+    "learning_rate": 1e-05,
+    "accuracy": 0.82636,
+    "overall_precision": 0.795,
+    "overall_recall": 0.8776,
+    "overall_f1": 0.8342,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.871,
+        "recall": 0.8878,
+        "f1": 0.8793,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.4495,
+        "recall": 0.9214,
+        "f1": 0.6042,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.8044,
+        "recall": 0.9211,
+        "f1": 0.8588,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.8342,
+        "recall": 0.8039,
+        "f1": 0.8187,
+        "count": 815
+      }
+    }
+  },
+  {
+    "epoch": 5,
+    "train_loss": 0.225525,
+    "val_loss": 0.391419,
+    "learning_rate": 5e-06,
+    "accuracy": 0.833682,
+    "overall_precision": 0.806,
+    "overall_recall": 0.8771,
+    "overall_f1": 0.84,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.8741,
+        "recall": 0.8994,
+        "f1": 0.8866,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.4618,
+        "recall": 0.9071,
+        "f1": 0.612,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.8039,
+        "recall": 0.918,
+        "f1": 0.8571,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.8679,
+        "recall": 0.7797,
+        "f1": 0.8214,
+        "count": 815
+      }
+    }
+  },
+  {
+    "epoch": 6,
+    "train_loss": 0.183816,
+    "val_loss": 0.471356,
+    "learning_rate": 5e-06,
+    "accuracy": 0.838389,
+    "overall_precision": 0.8541,
+    "overall_recall": 0.8146,
+    "overall_f1": 0.8339,
+    "lang_metrics": {
+      "c": {
+        "precision": 0.893,
+        "recall": 0.8714,
+        "f1": 0.882,
+        "count": 2036
+      },
+      "java": {
+        "precision": 0.5143,
+        "recall": 0.2571,
+        "f1": 0.3429,
+        "count": 315
+      },
+      "javascript": {
+        "precision": 0.8244,
+        "recall": 0.8738,
+        "f1": 0.8484,
+        "count": 658
+      },
+      "python": {
+        "precision": 0.8404,
+        "recall": 0.816,
+        "f1": 0.828,
+        "count": 815
+      }
+    }
+  }
+]
