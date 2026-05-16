@@ -100,7 +100,6 @@ class LoadingSpinner:
             sys.stdout.flush()
         return False
 
-
 def load_with_progress(load_fn, description):
     """带进度显示的加载包装器
 
@@ -150,8 +149,13 @@ class AuditCollator:
         
         # 提取特征与标签
         # score_avg 是训练特征（而非预测目标），用于辅助异常检测
-        #  "score_style": 0.425, "score_robustness": 0.425, "score_correctness": 0.475, "score_avg": 0.4417
-        feat_score = torch.tensor([item.get('score_avg', 0.0) for item in batch]).float()
+        #  "score_style": 0.475, "score_robustness": 0.425, "score_correctness": 0.5, "score_attack_surface": 0.0
+        feat_score = torch.tensor([[
+                                        item.get('score_style', 0.0),
+                                        item.get('score_robustness', 0.0),
+                                        item.get('score_correctness', 0.0),
+                                        item.get('score_attack_surface', 0.0)
+                                    ] for item in batch]).float()
         labels_a = torch.tensor([item.get('is_bug', 0) for item in batch]).long()
 
         # Tokenization
@@ -255,7 +259,7 @@ class CodeAuditSystem(nn.Module):
         
         # 评分特征嵌入层：将 score_avg 从标量映射到低维向量，作为输入特征注入
         self.score_embed = nn.Sequential(
-            nn.Linear(1, 32),
+            nn.Linear(4, 32),
             nn.GELU(),
             nn.Linear(32, 32)
         )
@@ -288,10 +292,13 @@ class CodeAuditSystem(nn.Module):
         
         # 注入评分特征
         if feat_score is not None:
+            # 1. 健壮性检查：如果 batch size 为 1 且变成了 1D 张量 (4,)，将其升维回 (1, 4)
             if feat_score.dim() == 1:
-                feat_score = feat_score.unsqueeze(-1)  # (B,) -> (B, 1)
-            score_vec = self.score_embed(feat_score)  # (B, 1) -> (B, 32)
-            feat = torch.cat([feat, score_vec], dim=-1)  # (B, model_dim+32)
+                feat_score = feat_score.unsqueeze(0)  # (4,) -> (1, 4)
+            # 2. 映射维度：(B, 4) -> (B, 32)
+            score_vec = self.score_embed(feat_score)  
+            # 3. 特征拼接：(B, model_dim) + (B, 32) -> (B, model_dim + 32)
+            feat = torch.cat([feat, score_vec], dim=-1)
         else:
             # 推理阶段无评分特征时，用零向量占位
             score_vec = torch.zeros(feat.size(0), 32, device=feat.device)

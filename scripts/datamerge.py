@@ -85,7 +85,7 @@ def split_jsonl_stratified(input_file, train_ratio=0.7, val_ratio=0.15, test_rat
 if __name__ == "__main__":
 
     # files_to_combine = ['../dataset/Cjs/scored3_output_avg.jsonl', '../dataset/scored/scored3_output_avg.jsonl']
-    output = '../dataset/final_merged_data.jsonl'
+    output = '../dataset/merged_output.jsonl'
     # merge_jsonl(files_to_combine, output)
     split_jsonl_stratified(
         input_file=output,
