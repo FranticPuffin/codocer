@@ -9,12 +9,31 @@ os.environ['MODELSCOPE_CACHE'] = 'D:/ModelCache'
 
 # --- 配置区 ---
 MODEL_ID = "qwen/Qwen2.5-Coder-7B-Instruct"
-INPUT_FILE = "./final_augmented_train.jsonl"  # 评估输入文件，包含代码、注释和 is_bug 字段
+INPUT_FILE = "./final_merged_data.jsonl"  # 评估输入文件，包含代码、注释和 is_bug 字段
 OUTPUT_FILE = "./scoredcjs_output.jsonl"
-NUM_RUNS = 3  # 评估维度数
+NUM_RUNS = 4  # 评估维度数
 
-# --- 三次评估对应三个不同维度 ---
+# --- 四次评估对应四个不同维度 ---
 DIMENSIONS = [
+     {
+        "key": "attack_surface",
+        "name": "攻击面暴露度与数据流敏感性",
+        "prompt": """You are an expert code auditor. Rate the 'Anomaly Score' of the following code on a scale of 0.0 to 1.0, focusing ONLY on Attack Surface Exposure & Data Flow Sensitivity.
+Criteria:
+1. External input handling — Does the code directly process data from untrusted or network sources (e.g., HTTP requests, socket input, file I/O from external paths, environment variables, command-line arguments)?
+2. Data flow reachability — Can externally supplied data flow through this function to security-sensitive operations (e.g., SQL queries, OS commands, file writes, authentication logic, cryptographic operations)?
+3. Exposure position — Is this function located at a system boundary (API endpoint, network handler, middleware) or deep within internal utility logic?
+4. Sensitivity of processed data — Does the code handle sensitive data such as credentials, tokens, personal information, or financial data?
+
+Score 1.0 means the code is deep inside the system with NO exposure to external inputs or sensitive data — minimal attack surface. Score 0.0 means the code is at a critical system boundary, directly processing untrusted external input that flows into security-sensitive operations — maximum attack surface and risk.
+
+Language: {lang}
+Context: {comment}
+Code:
+{code}
+
+Respond with only the numerical score (e.g., 0.50)."""
+    },
     {
         "key": "style",
         "name": "代码风格与规范",
@@ -29,10 +48,10 @@ Score 1.0 means excellent style and conventions. Score 0.0 means extremely poor 
 
 Language: {lang}
 Context: {comment}
-Code:
+Code: 
 {code}
 
-Respond with only the numerical score (e.g., 0.75)."""
+Respond with only the numerical score (e.g., 0.50)."""
     },
     {
         "key": "robustness",
@@ -51,7 +70,7 @@ Context: {comment}
 Code:
 {code}
 
-Respond with only the numerical score (e.g., 0.60)."""
+Respond with only the numerical score (e.g., 0.50)."""
     },
     {
         "key": "correctness",
@@ -70,8 +89,9 @@ Context: {comment}
 Code:
 {code}
 
-Respond with only the numerical score (e.g., 0.85)."""
+Respond with only the numerical score (e.g., 0.50)."""
     }
+   
 ]
 
 # --- 检测GPU并自动配置 ---
@@ -118,7 +138,7 @@ else:
 def get_anomaly_score(lang, code, comment, dimension_index=0):
     """
     调用模型对代码进行评分，按指定维度给出评分
-    dimension_index: 0=代码风格, 1=健壮性, 2=逻辑正确性
+    dimension_index: 0=代码风格, 1=健壮性, 2=逻辑正确性, 3=攻击面暴露度与数据流敏感性
     """
     dim = DIMENSIONS[dimension_index]
     prompt = dim["prompt"].format(lang=lang, code=code, comment=comment)
@@ -157,12 +177,12 @@ def get_anomaly_score(lang, code, comment, dimension_index=0):
 def process_single_run(run_index):
     """
     执行单次维度评估，将结果保存到带编号的输出文件中
-    run_index: 1=代码风格, 2=健壮性, 3=逻辑正确性
+    run_index: 1=代码风格, 2=健壮性, 3=逻辑正确性, 4=攻击面暴露度与数据流敏感性
     返回输出文件路径
     """
     dimension_index = run_index - 1  # 转为0-based索引
     dim = DIMENSIONS[dimension_index]
-    output_file = f"./scored3_output_{run_index}.jsonl"
+    output_file = f"./scored4_output_{run_index}.jsonl"
     print(f"\n{'='*60}")
     print(f"开始第 {run_index} 次评估（维度: {dim['name']}）: {INPUT_FILE} ...")
     print(f"{'='*60}")
@@ -212,15 +232,15 @@ def process_single_run(run_index):
 
 def compute_average():
     """
-    读取三次维度评估的输出文件，计算每条数据得分的平均值，
+    读取各维度评估的输出文件，计算每条数据得分的平均值，
     生成最终的平均得分文件
     """
-    avg_output_file = "./scored3_output_avg.jsonl"
+    avg_output_file = "./scored4_output_avg.jsonl"
     
-    # 读取三次评估的所有数据
+    # 读取各维度评估的所有数据
     all_runs = []
     for i in range(1, NUM_RUNS + 1):
-        run_file = f"./scored3_output_{i}.jsonl"
+        run_file = f"./scored4_output_{i}.jsonl"
         run_data = []
         with open(run_file, 'r', encoding='utf-8') as f:
             for line in f:
@@ -230,7 +250,7 @@ def compute_average():
         all_runs.append(run_data)
         print(f"已加载 {run_file}（维度: {DIMENSIONS[i-1]['name']}），共 {len(run_data)} 条数据")
     
-    # 验证三次评估的数据条数一致
+    # 验证各次评估的数据条数一致
     num_entries = len(all_runs[0])
     for i, run_data in enumerate(all_runs):
         if len(run_data) != num_entries:
@@ -249,7 +269,7 @@ def compute_average():
                 "is_bug": all_runs[0][idx].get("is_bug"),
             }
             
-            # 收集三个维度的得分
+            # 收集各维度的得分
             scores = []
             score_details = {}
             for run_idx in range(NUM_RUNS):
@@ -268,15 +288,15 @@ def compute_average():
             f_out.write(json.dumps(avg_obj, ensure_ascii=False) + '\n')
     
     print(f"\n{'='*60}")
-    print(f"三维度平均得分计算完成！结果已保存至: {avg_output_file}")
+    print(f"四维度平均得分计算完成！结果已保存至: {avg_output_file}")
     print(f"共处理 {num_entries} 条数据")
     print(f"维度: {', '.join(d['name'] for d in DIMENSIONS)}")
     print(f"{'='*60}")
 
 if __name__ == "__main__":
-    # 执行三次维度评估
-    for run_idx in range(1, NUM_RUNS + 1):
+    # 执行第四次维度评估
+    for run_idx in range(1, NUM_RUNS+1):
         process_single_run(run_idx)
     
-    # 计算三次维度评估的平均得分
+    # 计算四次维度评估的平均得分
     compute_average()
