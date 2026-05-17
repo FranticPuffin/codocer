@@ -10,8 +10,11 @@ from torch.amp import autocast, GradScaler
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 import json
 from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve, auc
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # 非交互式后端，服务器上无需 GUI
+import matplotlib.pyplot as plt
 
 
 dataset_dir = "../dataset/final_dataset/"
@@ -265,11 +268,55 @@ class BaselinePipeline:
             "code_inputs": {k: v.to(self.device) for k, v in self.tokenizer(code, **args).items()}
         }
 
+    @staticmethod
+    def _compute_detailed_metrics(labels, preds, probs=None):
+        """计算单个分组（总体或某语言）的完整指标
+        
+        Args:
+            labels: 真实标签数组 (0=负样本, 1=正样本)
+            preds: 预测标签数组
+            probs: 正类概率数组（用于 AUC），可选
+            
+        Returns:
+            dict: 包含 Acc, 正/负样本 P/R/F, AUC 的字典
+        """
+        acc = accuracy_score(labels, preds)
+        
+        # 正样本 (label=1) 的 P/R/F
+        pos_p = precision_score(labels, preds, pos_label=1, average='binary', zero_division=0)
+        pos_r = recall_score(labels, preds, pos_label=1, average='binary', zero_division=0)
+        pos_f1 = f1_score(labels, preds, pos_label=1, average='binary', zero_division=0)
+        
+        # 负样本 (label=0) 的 P/R/F
+        neg_p = precision_score(labels, preds, pos_label=0, average='binary', zero_division=0)
+        neg_r = recall_score(labels, preds, pos_label=0, average='binary', zero_division=0)
+        neg_f1 = f1_score(labels, preds, pos_label=0, average='binary', zero_division=0)
+        
+        # AUC（需要概率值且两类都存在）
+        auc_val = None
+        if probs is not None and len(np.unique(labels)) > 1:
+            try:
+                auc_val = roc_auc_score(labels, probs)
+            except ValueError:
+                auc_val = None
+        
+        return {
+            "acc": round(acc, 4),
+            "pos_precision": round(pos_p, 4),
+            "pos_recall": round(pos_r, 4),
+            "pos_f1": round(pos_f1, 4),
+            "neg_precision": round(neg_p, 4),
+            "neg_recall": round(neg_r, 4),
+            "neg_f1": round(neg_f1, 4),
+            "auc": round(auc_val, 4) if auc_val is not None else None,
+            "count": len(labels)
+        }
+
     def evaluate(self, dataloader):
-        """评估：计算总体和按语言分类的 P/R/F1"""
         self.model.eval()
         all_preds = []
         all_labels = []
+        all_probs = []  # 正类概率，用于 AUC
         all_langs = []
         total_val_loss = 0.0
         num_batches = 0
@@ -285,52 +332,186 @@ class BaselinePipeline:
                 total_val_loss += loss.item()
                 num_batches += 1
 
+                # 收集预测结果和概率
+                probs = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()  # 正类概率
                 all_preds.extend(torch.argmax(logits, dim=-1).cpu().numpy())
                 all_labels.extend(batch['label'].numpy())
+                all_probs.extend(probs)
                 all_langs.extend(batch['lang'])
 
         # 计算总体指标
         avg_val_loss = total_val_loss / num_batches if num_batches > 0 else 0.0
         all_labels_arr = np.array(all_labels)
         all_preds_arr = np.array(all_preds)
+        all_probs_arr = np.array(all_probs)
 
-        overall_p = precision_score(all_labels_arr, all_preds_arr, average='binary', zero_division=0)
-        overall_r = recall_score(all_labels_arr, all_preds_arr, average='binary', zero_division=0)
-        overall_f1 = f1_score(all_labels_arr, all_preds_arr, average='binary', zero_division=0)
+        # 总体详细指标
+        overall_metrics = self._compute_detailed_metrics(all_labels_arr, all_preds_arr, all_probs_arr)
 
-        # 按语言分类统计 P / R / F1
+        # 按语言分类统计详细指标
         lang_metrics = {}
         unique_langs = sorted(set(all_langs))
         for lang in unique_langs:
             mask = np.array([l == lang for l in all_langs])
             lang_labels = all_labels_arr[mask]
             lang_preds = all_preds_arr[mask]
+            lang_probs = all_probs_arr[mask]
             if len(lang_labels) > 0:
-                lang_p = precision_score(lang_labels, lang_preds, average='binary', zero_division=0)
-                lang_r = recall_score(lang_labels, lang_preds, average='binary', zero_division=0)
-                lang_f1 = f1_score(lang_labels, lang_preds, average='binary', zero_division=0)
-                lang_metrics[lang] = {
-                    "precision": round(lang_p, 4),
-                    "recall": round(lang_r, 4),
-                    "f1": round(lang_f1, 4),
-                    "count": int(mask.sum())
-                }
+                lang_metrics[lang] = self._compute_detailed_metrics(lang_labels, lang_preds, lang_probs)
 
-        # 打印按语言分类的指标
-        print("\n📋 --- 按语言分类指标 ---")
-        for lang, lm in lang_metrics.items():
-            print(f"  [{lang:>12s}] P={lm['precision']:.4f}  R={lm['recall']:.4f}  F1={lm['f1']:.4f}  (n={lm['count']})")
-        print(f"  [{'总体 (Overall)':>12s}] P={overall_p:.4f}  R={overall_r:.4f}  F1={overall_f1:.4f}  (n={len(all_labels_arr)})")
+        # 打印按语言分类的详细指标表
+        self._print_metrics_table(overall_metrics, lang_metrics)
 
         metrics = {
             "val_loss": avg_val_loss,
-            "anomaly_acc": accuracy_score(all_labels_arr, all_preds_arr),
-            "overall_precision": round(overall_p, 4),
-            "overall_recall": round(overall_r, 4),
-            "overall_f1": round(overall_f1, 4),
+            "anomaly_acc": overall_metrics["acc"],
+            "anomaly_f1": overall_metrics["pos_f1"],
+            "overall_precision": overall_metrics["pos_precision"],
+            "overall_recall": overall_metrics["pos_recall"],
+            "overall_f1": overall_metrics["pos_f1"],
+            "overall_auc": overall_metrics["auc"],
+            "pos_precision": overall_metrics["pos_precision"],
+            "pos_recall": overall_metrics["pos_recall"],
+            "pos_f1": overall_metrics["pos_f1"],
+            "neg_precision": overall_metrics["neg_precision"],
+            "neg_recall": overall_metrics["neg_recall"],
+            "neg_f1": overall_metrics["neg_f1"],
             "lang_metrics": lang_metrics,
+            # 原始数据，用于 AUC 绘图和最终汇总（不写入 JSON 历史）
+            "_raw_labels": all_labels_arr,
+            "_raw_probs": all_probs_arr,
+            "_raw_langs": np.array(all_langs),
         }
         return metrics
+
+    @staticmethod
+    def _print_metrics_table(overall_metrics, lang_metrics):
+        """以表格形式打印总体和按语言分类的详细指标"""
+        # 表头
+        header = f"{'类别':<16s} {'Acc':>7s} {'Pos-P':>7s} {'Pos-R':>7s} {'Pos-F':>7s} {'Neg-P':>7s} {'Neg-R':>7s} {'Neg-F':>7s} {'AUC':>7s} {'N':>6s}"
+        sep = "-" * len(header)
+        
+        print(f"\n📋 --- 详细评估指标表 ---")
+        print(sep)
+        print(header)
+        print(sep)
+        
+        def fmt(val):
+            """格式化数值，None 显示为 N/A"""
+            return f"{val:.4f}" if val is not None else "  N/A"
+        
+        # 各语言行
+        for lang, lm in lang_metrics.items():
+            row = f"{lang:<16s} {fmt(lm['acc']):>7s} {fmt(lm['pos_precision']):>7s} {fmt(lm['pos_recall']):>7s} {fmt(lm['pos_f1']):>7s} {fmt(lm['neg_precision']):>7s} {fmt(lm['neg_recall']):>7s} {fmt(lm['neg_f1']):>7s} {fmt(lm['auc']):>7s} {lm['count']:>6d}"
+            print(row)
+        
+        print(sep)
+        
+        # 总体行
+        om = overall_metrics
+        row = f"{'总体 (Overall)':<16s} {fmt(om['acc']):>7s} {fmt(om['pos_precision']):>7s} {fmt(om['pos_recall']):>7s} {fmt(om['pos_f1']):>7s} {fmt(om['neg_precision']):>7s} {fmt(om['neg_recall']):>7s} {fmt(om['neg_f1']):>7s} {fmt(om['auc']):>7s} {om['count']:>6d}"
+        print(row)
+        print(sep)
+
+    @staticmethod
+    def _print_summary_table(val_metrics_dict, test_metrics_dict, best_epoch):
+        """打印验证集最佳 + 测试集的最终汇总表格
+        
+        Args:
+            val_metrics_dict: 验证集最佳 epoch 的指标字典 (来自 training_history)
+            test_metrics_dict: 测试集 evaluate 返回的 metrics 字典
+            best_epoch: 最佳 epoch 编号
+        """
+        def fmt(val):
+            return f"{val:.4f}" if val is not None else "  N/A"
+
+        header = f"{'数据集':<18s} {'Acc':>7s} {'Pos-P':>7s} {'Pos-R':>7s} {'Pos-F':>7s} {'Neg-P':>7s} {'Neg-R':>7s} {'Neg-F':>7s} {'AUC':>7s}"
+        sep = "-" * len(header)
+
+        print(f"\n{'='*len(header)}")
+        print(f"📊 最终汇总表格（验证集最佳 Epoch + 测试集）")
+        print(f"{'='*len(header)}")
+        print(sep)
+        print(header)
+        print(sep)
+
+        # 验证集最佳行
+        v = val_metrics_dict
+        val_row = f"{'验证集(最佳Ep'+str(best_epoch)+')':<18s} {fmt(v.get('accuracy')):>7s} {fmt(v.get('pos_precision')):>7s} {fmt(v.get('pos_recall')):>7s} {fmt(v.get('pos_f1')):>7s} {fmt(v.get('neg_precision')):>7s} {fmt(v.get('neg_recall')):>7s} {fmt(v.get('neg_f1')):>7s} {fmt(v.get('auc')):>7s}"
+        print(val_row)
+
+        # 测试集行
+        t = test_metrics_dict
+        test_row = f"{'测试集':<18s} {fmt(t.get('anomaly_acc')):>7s} {fmt(t.get('pos_precision')):>7s} {fmt(t.get('pos_recall')):>7s} {fmt(t.get('pos_f1')):>7s} {fmt(t.get('neg_precision')):>7s} {fmt(t.get('neg_recall')):>7s} {fmt(t.get('neg_f1')):>7s} {fmt(t.get('overall_auc')):>7s}"
+        print(test_row)
+
+        print(sep)
+        print(f"📌 最佳验证 Epoch: {best_epoch}, 验证损失: {v.get('val_loss', 'N/A')}")
+
+    @staticmethod
+    def plot_auc(all_labels, all_probs, lang_labels_dict, save_path):
+        """绘制 AUC 曲线并保存
+        
+        Args:
+            all_labels: 总体真实标签
+            all_probs: 总体正类概率
+            lang_labels_dict: {lang: (labels, probs)} 按语言分组的数据
+            save_path: 图片保存路径
+        """
+        # 设置支持中文的字体（服务器环境可能无中文字体，优先尝试常见中文字体）
+        import matplotlib.font_manager as fm
+        chinese_fonts = [f.name for f in fm.fontManager.ttflist 
+                         if any(kw in f.name.lower() for kw in ['simhei', 'simsun', 'noto sans cjk', 'wqy', 'wenquanyi', 'microsoft yahei', 'droid sans fallback', 'arial unicode'])]
+        if chinese_fonts:
+            plt.rcParams['font.sans-serif'] = chinese_fonts + plt.rcParams['font.sans-serif']
+        else:
+            # 无中文字体时使用英文标签，避免显示为方框
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
+        
+        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+        
+        # 判断是否可用中文
+        use_chinese = bool(chinese_fonts)
+        
+        plt.figure(figsize=(10, 8))
+        
+        # 总体 ROC 曲线
+        if len(np.unique(all_labels)) > 1:
+            fpr, tpr, _ = roc_curve(all_labels, all_probs)
+            roc_auc = auc(fpr, tpr)
+            overall_label = f'Overall ROC (AUC = {roc_auc:.4f})' if not use_chinese else f'总体 ROC (AUC = {roc_auc:.4f})'
+            plt.plot(fpr, tpr, color='darkorange', lw=2.5, label=overall_label)
+        
+        # 各语言 ROC 曲线
+        colors = plt.cm.Set2(np.linspace(0, 1, max(len(lang_labels_dict), 1)))
+        for i, (lang, (labels, probs)) in enumerate(sorted(lang_labels_dict.items())):
+            if len(np.unique(labels)) > 1:
+                try:
+                    fpr_l, tpr_l, _ = roc_curve(labels, probs)
+                    roc_auc_l = auc(fpr_l, tpr_l)
+                    plt.plot(fpr_l, tpr_l, color=colors[i], lw=1.5, linestyle='--',
+                             label=f'{lang} (AUC = {roc_auc_l:.4f})')
+                except ValueError:
+                    pass
+        
+        # 对角线（随机猜测）
+        random_label = 'Random Guess' if not use_chinese else '随机猜测'
+        plt.plot([0, 1], [0, 1], color='navy', lw=1, linestyle=':', alpha=0.6, label=random_label)
+        
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        xlabel = 'False Positive Rate' if not use_chinese else '假正率 (False Positive Rate)'
+        ylabel = 'True Positive Rate' if not use_chinese else '真正率 (True Positive Rate)'
+        title = 'ROC Curve - AUC Evaluation' if not use_chinese else 'ROC 曲线 - AUC 评估'
+        plt.xlabel(xlabel, fontsize=12)
+        plt.ylabel(ylabel, fontsize=12)
+        plt.title(title, fontsize=14)
+        plt.legend(loc='lower right', fontsize=10)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"📈 AUC 曲线已保存至: {save_path}")
 
 
 if __name__ == "__main__":
@@ -421,6 +602,13 @@ if __name__ == "__main__":
             "val_loss": round(val_loss, 6),
             "learning_rate": new_lr,
             "accuracy": round(metrics['anomaly_acc'], 6),
+            "pos_precision": metrics['pos_precision'],
+            "pos_recall": metrics['pos_recall'],
+            "pos_f1": metrics['pos_f1'],
+            "neg_precision": metrics['neg_precision'],
+            "neg_recall": metrics['neg_recall'],
+            "neg_f1": metrics['neg_f1'],
+            "auc": metrics['overall_auc'],
             "overall_precision": metrics['overall_precision'],
             "overall_recall": metrics['overall_recall'],
             "overall_f1": metrics['overall_f1'],
@@ -431,8 +619,11 @@ if __name__ == "__main__":
         # --- 输出报告 ---
         print(f"\n📊 --- Epoch {epoch+1} 验证集性能报告 ---")
         print(f"  训练损失: {avg_train_loss:.4f} | 验证损失: {val_loss:.4f}")
-        print(f"  1. 异常检测准确率 (ACC): {metrics['anomaly_acc']*100:.2f}%")
-        print(f"  2. 总体 P={metrics['overall_precision']:.4f}  R={metrics['overall_recall']:.4f}  F1={metrics['overall_f1']:.4f}")
+        print(f"  1. 准确率 (ACC): {metrics['anomaly_acc']*100:.2f}%")
+        print(f"  2. 正样本 P={metrics['pos_precision']:.4f}  R={metrics['pos_recall']:.4f}  F1={metrics['pos_f1']:.4f}")
+        print(f"  3. 负样本 P={metrics['neg_precision']:.4f}  R={metrics['neg_recall']:.4f}  F1={metrics['neg_f1']:.4f}")
+        auc_str = f"{metrics['overall_auc']:.4f}" if metrics['overall_auc'] is not None else "N/A"
+        print(f"  4. AUC: {auc_str}")
         print(f"  当前学习率: {new_lr:.2e}")
         print(f"  推理示例: {res}")
         print(f"{'='*50}")
@@ -449,7 +640,100 @@ if __name__ == "__main__":
 
     print(f"\n✅ 训练完成！共训练 {epoch+1} 轮，最终验证损失: {val_loss:.4f}，最佳验证损失: {best_val_loss:.4f}")
 
-    # 7. 保存训练历史
+    # 7. 将训练历史记录输出至 output 文件夹（排除 _raw 内部字段）
+    def _sanitize_record(rec):
+        """移除不可 JSON 序列化的内部字段"""
+        return {k: v for k, v in rec.items() if not k.startswith('_')}
+
     with open(history_path, 'w', encoding='utf-8') as f:
-        json.dump(training_history, f, ensure_ascii=False, indent=2)
-    print(f" 训练历史已保存至: {history_path}")
+        json.dump([_sanitize_record(r) for r in training_history], f, ensure_ascii=False, indent=2)
+    print(f"📝 训练历史已保存至: {history_path}")
+
+    # =====================================================================
+    # 8. 最终评估：在测试集上运行完整评估，输出汇总表格 + AUC 曲线
+    # =====================================================================
+    print("\n" + "=" * 70)
+    print("🔬 最终评估：在测试集上运行完整评估")
+    print("=" * 70)
+
+    test_metrics = pipeline.evaluate(test_loader)
+
+    # --- 输出最终汇总表格（验证集最佳 Epoch + 测试集）---
+    best_epoch_idx = min(range(len(training_history)), key=lambda i: training_history[i]['val_loss'])
+    best_ep = training_history[best_epoch_idx]
+    BaselinePipeline._print_summary_table(best_ep, test_metrics, best_ep['epoch'])
+
+    # --- 输出测试集按语言分类的详细指标表 ---
+    print("\n" + "=" * 70)
+    print("📊 测试集详细指标表（含按语言分类）")
+    print("=" * 70)
+    test_overall = BaselinePipeline._compute_detailed_metrics(
+        test_metrics["_raw_labels"],
+        np.array([1 if p > 0.5 else 0 for p in test_metrics["_raw_probs"]]),
+        test_metrics["_raw_probs"]
+    )
+    BaselinePipeline._print_metrics_table(test_overall, test_metrics["lang_metrics"])
+
+    # --- 绘制 AUC 曲线 ---
+    # 准备按语言分组的数据
+    test_lang_dict = {}
+    raw_langs = test_metrics["_raw_langs"]
+    raw_labels = test_metrics["_raw_labels"]
+    raw_probs = test_metrics["_raw_probs"]
+    for lang in sorted(set(raw_langs)):
+        mask = raw_langs == lang
+        test_lang_dict[lang] = (raw_labels[mask], raw_probs[mask])
+
+    # 测试集 AUC 曲线
+    auc_plot_path = os.path.join(output_dir, f"baseline_test_auc_{timestamp}.png")
+    BaselinePipeline.plot_auc(raw_labels, raw_probs, test_lang_dict, auc_plot_path)
+
+    # 同时为验证集绘制 AUC 曲线（使用最后一个 epoch 的验证数据）
+    val_lang_dict = {}
+    val_raw_langs = metrics["_raw_langs"]
+    val_raw_labels = metrics["_raw_labels"]
+    val_raw_probs = metrics["_raw_probs"]
+    for lang in sorted(set(val_raw_langs)):
+        mask = val_raw_langs == lang
+        val_lang_dict[lang] = (val_raw_labels[mask], val_raw_probs[mask])
+
+    val_auc_plot_path = os.path.join(output_dir, f"baseline_val_auc_{timestamp}.png")
+    BaselinePipeline.plot_auc(val_raw_labels, val_raw_probs, val_lang_dict, val_auc_plot_path)
+
+    # --- 保存最终测试结果到 JSON ---
+    test_result_path = os.path.join(output_dir, f"baseline_test_result_{timestamp}.json")
+    test_result = {
+        "test_loss": test_metrics["val_loss"],
+        "test_acc": test_metrics["anomaly_acc"],
+        "test_pos_precision": test_metrics["pos_precision"],
+        "test_pos_recall": test_metrics["pos_recall"],
+        "test_pos_f1": test_metrics["pos_f1"],
+        "test_neg_precision": test_metrics["neg_precision"],
+        "test_neg_recall": test_metrics["neg_recall"],
+        "test_neg_f1": test_metrics["neg_f1"],
+        "test_auc": test_metrics["overall_auc"],
+        "test_lang_metrics": test_metrics["lang_metrics"],
+        "val_best_epoch": best_ep['epoch'],
+        "val_best_loss": best_ep['val_loss'],
+        "val_best_acc": best_ep['accuracy'],
+        "val_best_pos_precision": best_ep['pos_precision'],
+        "val_best_pos_recall": best_ep['pos_recall'],
+        "val_best_pos_f1": best_ep['pos_f1'],
+        "val_best_neg_precision": best_ep['neg_precision'],
+        "val_best_neg_recall": best_ep['neg_recall'],
+        "val_best_neg_f1": best_ep['neg_f1'],
+        "val_best_auc": best_ep['auc'],
+        "training_epochs": epoch + 1,
+        "best_val_loss": best_val_loss,
+    }
+    with open(test_result_path, 'w', encoding='utf-8') as f:
+        json.dump(test_result, f, ensure_ascii=False, indent=2)
+    print(f"📝 测试结果已保存至: {test_result_path}")
+
+    print("\n" + "=" * 70)
+    print("🎉 全部评估完成！")
+    print(f"   📈 测试集 AUC 曲线: {auc_plot_path}")
+    print(f"   📈 验证集 AUC 曲线: {val_auc_plot_path}")
+    print(f"   📝 训练历史: {history_path}")
+    print(f"   📝 测试结果: {test_result_path}")
+    print("=" * 70)
